@@ -4,11 +4,10 @@ import (
 	"container/list"
 	"container/ring"
 	"runtime"
-	"sync"
 )
 
-const PRIME_GROUP_SIZE = 2048
-const TRY_SIZE = 256
+const PRIME_GROUP_SIZE = 65536
+const TRY_SIZE = 2048
 
 func wheel2357() *ring.Ring {
 	var gaps2357 = []int{2, 4, 2, 4, 6, 2, 6, 4, 2, 4, 6, 6, 2, 6, 4, 2, 6, 4, 6, 8, 4, 2, 4, 2, 4, 8, 6, 4, 6, 2, 4, 6, 2, 6, 6, 4, 2, 4, 6, 2, 6, 4, 2, 4, 2, 10, 2, 10}
@@ -24,14 +23,12 @@ type PrimeGroup struct {
 	Start      int
 	End        int
 	capped     bool
-	mu         *sync.Mutex
 	primes     []int
 	primesList *list.List
 }
 
 func NewPrimeGroup() *PrimeGroup {
 	return &PrimeGroup{
-		mu:         &sync.Mutex{},
 		primesList: list.New(),
 	}
 }
@@ -39,7 +36,6 @@ func NewPrimeGroup() *PrimeGroup {
 func (pg *PrimeGroup) Add(prime int) bool {
 	added := true
 	if !pg.capped {
-		pg.mu.Lock()
 		if pg.primesList.Len() < PRIME_GROUP_SIZE-1 {
 			if pg.primesList.Len() == 0 {
 				pg.Start = prime
@@ -52,7 +48,6 @@ func (pg *PrimeGroup) Add(prime int) bool {
 			pg.primesList = nil
 			pg.capped = true
 		}
-		pg.mu.Unlock()
 	} else {
 		added = false
 	}
@@ -70,14 +65,10 @@ func (pg *PrimeGroup) listInternal() []int {
 }
 
 func (pg *PrimeGroup) List() []int {
-	if pg.capped {
-		return pg.primes
-	} else {
-		pg.mu.Lock()
-		primes := pg.listInternal()
-		pg.mu.Unlock()
-		return primes
+	if !pg.capped && len(pg.primes) != pg.primesList.Len() {
+		pg.primes = pg.listInternal()
 	}
+	return pg.primes
 }
 
 func (pg *PrimeGroup) Compare(tryPrimes []int, passedList *list.List, doneCh chan struct{}) {

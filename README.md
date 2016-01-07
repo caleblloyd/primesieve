@@ -28,10 +28,10 @@ Performance
 
 Performance is decent, but could definitely be better.  On a 2015 Macbook Pro Retina running Go 1.5, performance was:
 
-- 1,000 primes in ~20ms
-- 10,000 primes in ~300ms
-- 100,000 primes in ~2.75s
-- 1,000,000 primes in ~1m30s
+- 1,000 primes in ~1ms
+- 10,000 primes in ~25ms
+- 100,000 primes in ~330ms
+- 1,000,000 primes in ~6.25s
 
 
 Contributions
