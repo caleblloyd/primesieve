@@ -6,8 +6,8 @@ import (
 	"runtime"
 )
 
-const PRIME_GROUP_SIZE = 100000000
-const TRY_SIZE = 100000
+const PRIME_GROUP_SIZE = 100000
+const TRY_PER_THREAD_SIZE = 100000
 
 func wheel2357() *ring.Ring {
 	var gaps2357 = []int{2, 4, 2, 4, 6, 2, 6, 4, 2, 4, 6, 6, 2, 6, 4, 2, 6, 4, 6, 8, 4, 2, 4, 2, 4, 8, 6, 4, 6, 2, 4, 6, 2, 6, 6, 4, 2, 4, 6, 2, 6, 4, 2, 4, 2, 10, 2, 10}
@@ -43,8 +43,11 @@ func (pg *PrimeGroup) Add(prime int) bool {
 	return false
 }
 
-func (pg *PrimeGroup) Compare(tryPrimes []int, passedList *list.List, doneCh chan struct{}) {
-	for _, try := range tryPrimes {
+func (pg *PrimeGroup) Compare(tg *TryGroup) {
+	tryLen := tg.TryLen
+	tg.Reset()
+	for t := 0; t < tryLen; t++ {
+		try := tg.Try[t]
 		pass := true
 		var lastPrime int
 		for i := 0; i < pg.PrimesLen; i++ {
@@ -59,10 +62,33 @@ func (pg *PrimeGroup) Compare(tryPrimes []int, passedList *list.List, doneCh cha
 			lastPrime = prime
 		}
 		if pass {
-			passedList.PushBack(try)
+			tg.Add(try)
 		}
 	}
-	doneCh <- struct{}{}
+}
+
+type TryGroup struct {
+	Try    []int
+	TryLen int
+}
+
+func NewTryGroup() *TryGroup {
+	return &TryGroup{
+		Try: make([]int, TRY_PER_THREAD_SIZE),
+	}
+}
+
+func (tg *TryGroup) Add(try int) bool {
+	if tg.TryLen < TRY_PER_THREAD_SIZE {
+		tg.Try[tg.TryLen] = try
+		tg.TryLen++
+		return true
+	}
+	return false
+}
+
+func (tg *TryGroup) Reset() {
+	tg.TryLen = 0
 }
 
 type PrimeGroupList struct {
@@ -78,7 +104,6 @@ func NewPrimeGroupList(outCh chan int) *PrimeGroupList {
 	primeGroups.PushBack(NewPrimeGroup())
 	threads := runtime.GOMAXPROCS(0)
 	return &PrimeGroupList{
-		generate:    TRY_SIZE * threads,
 		outCh:       outCh,
 		primeGroups: primeGroups,
 		threads:     threads,
@@ -98,6 +123,10 @@ func (pgl *PrimeGroupList) Add(prime int) {
 
 func (pgl *PrimeGroupList) Generate() {
 	ch := make(chan struct{}, pgl.threads)
+	tg := make([]*TryGroup, pgl.threads)
+	for i := 0; i < pgl.threads; i++ {
+		tg[i] = NewTryGroup()
+	}
 	curGap := wheel2357()
 	// 2 is prime, but we won't generate factors of 2 so no need to add to pgl for comparison
 	pgl.outCh <- 2
@@ -109,8 +138,11 @@ func (pgl *PrimeGroupList) Generate() {
 	gapTotal := 11
 	for true {
 		// generate potential primes
-		tryList := list.New()
+		for i := 0; i < pgl.threads; i++ {
+			tg[i].Reset()
+		}
 		max := pgl.End * 3
+		tgi := 0
 		for true {
 			gapVal := curGap.Value.(int)
 			gapTotal += gapVal
@@ -118,71 +150,42 @@ func (pgl *PrimeGroupList) Generate() {
 				gapTotal -= gapVal
 				break
 			}
-			tryList.PushBack(gapTotal)
-			curGap = curGap.Next()
-			if tryList.Len() >= pgl.generate {
-				break
-			}
-		}
-		// compare
-		pg := pgl.primeGroups.Front()
-		for true {
-
-			nextTry := list.New()
-			tryLen := tryList.Len()
-			tryLenOrig := tryLen
-			tryPtr := tryList.Front()
-			for true {
-				whole := tryLen / pgl.threads
-				remain := tryLen % pgl.threads
-				if whole > TRY_SIZE {
-					whole = TRY_SIZE
-					remain = 0
-					tryLen -= TRY_SIZE * pgl.threads
-				} else {
-					tryLen = 0
-				}
-
-				passedLists := make([]*list.List, pgl.threads)
-				for t := 0; t < pgl.threads; t++ {
-					passedLists[t] = list.New()
-					size := whole
-					if remain > 0 {
-						size++
-						remain--
-					}
-					try := make([]int, size)
-					for tryI := 0; tryI < size; tryI++ {
-						try[tryI] = tryPtr.Value.(int)
-						tryPtr = tryPtr.Next()
-					}
-					go pg.Value.(*PrimeGroup).Compare(try, passedLists[t], ch)
-				}
-				for t := 0; t < pgl.threads; t++ {
-					<-ch
-				}
-				for _, pl := range passedLists {
-					for p := pl.Front(); p != nil; p = p.Next() {
-						nextTry.PushBack(p.Value.(int))
-					}
-				}
-				if tryLen == 0 {
+			if !tg[tgi].Add(gapTotal) {
+				tgi++
+				if tgi >= pgl.threads {
+					gapTotal -= gapVal
 					break
 				}
+				tg[tgi].Add(gapTotal)
 			}
-
-			pg = pg.Next()
-			if pg == nil {
-				// End of iteration, everything left is primes
-				for p := nextTry.Front(); p != nil; p = p.Next() {
-					pgl.Add(p.Value.(int))
-				}
-				pgl.generate = TRY_SIZE * pgl.threads * (tryLenOrig / nextTry.Len())
-				break
-			}
-			tryList = nextTry
+			curGap = curGap.Next()
 		}
 
+		f := func(ftg *TryGroup) {
+			for pg := pgl.primeGroups.Front(); pg != nil; pg = pg.Next() {
+				pg.Value.(*PrimeGroup).Compare(ftg)
+			}
+			ch <- struct{}{}
+		}
+
+		// compare
+		wait := 0
+		for i := 0; i < pgl.threads; i++ {
+			if tg[i].TryLen > 0 {
+				go f(tg[i])
+				wait++
+			}
+		}
+		for w := 0; w < wait; w++ {
+			<-ch
+		}
+		for i := 0; i < pgl.threads; i++ {
+			if tg[i].TryLen > 0 {
+				for ti := 0; ti < tg[i].TryLen; ti++ {
+					pgl.Add(tg[i].Try[ti])
+				}
+			}
+		}
 	}
 }
 func GenPrimes(numPrimes int) []int {
