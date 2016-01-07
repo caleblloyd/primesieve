@@ -6,8 +6,8 @@ import (
 	"runtime"
 )
 
-const PRIME_GROUP_SIZE = 65536
-const TRY_SIZE = 2048
+const PRIME_GROUP_SIZE = 100000000
+const TRY_SIZE = 100000
 
 func wheel2357() *ring.Ring {
 	var gaps2357 = []int{2, 4, 2, 4, 6, 2, 6, 4, 2, 4, 6, 6, 2, 6, 4, 2, 6, 4, 6, 8, 4, 2, 4, 2, 4, 8, 6, 4, 6, 2, 4, 6, 2, 6, 6, 4, 2, 4, 6, 2, 6, 4, 2, 4, 2, 10, 2, 10}
@@ -20,62 +20,35 @@ func wheel2357() *ring.Ring {
 }
 
 type PrimeGroup struct {
-	Start      int
-	End        int
-	capped     bool
-	primes     []int
-	primesList *list.List
+	Primes    []int
+	PrimesLen int
+	Capped    bool
 }
 
 func NewPrimeGroup() *PrimeGroup {
 	return &PrimeGroup{
-		primesList: list.New(),
+		Primes: make([]int, PRIME_GROUP_SIZE),
 	}
 }
 
 func (pg *PrimeGroup) Add(prime int) bool {
-	added := true
-	if !pg.capped {
-		if pg.primesList.Len() < PRIME_GROUP_SIZE-1 {
-			if pg.primesList.Len() == 0 {
-				pg.Start = prime
-			}
-			pg.primesList.PushBack(prime)
-		} else {
-			pg.End = prime
-			pg.primesList.PushBack(prime)
-			pg.primes = pg.listInternal()
-			pg.primesList = nil
-			pg.capped = true
+	if !pg.Capped {
+		pg.Primes[pg.PrimesLen] = prime
+		pg.PrimesLen++
+		if pg.PrimesLen >= PRIME_GROUP_SIZE {
+			pg.Capped = true
 		}
-	} else {
-		added = false
+		return true
 	}
-	return added
-}
-
-func (pg *PrimeGroup) listInternal() []int {
-	primes := make([]int, pg.primesList.Len())
-	i := 0
-	for e := pg.primesList.Front(); e != nil; e = e.Next() {
-		primes[i] = e.Value.(int)
-		i++
-	}
-	return primes
-}
-
-func (pg *PrimeGroup) List() []int {
-	if !pg.capped && len(pg.primes) != pg.primesList.Len() {
-		pg.primes = pg.listInternal()
-	}
-	return pg.primes
+	return false
 }
 
 func (pg *PrimeGroup) Compare(tryPrimes []int, passedList *list.List, doneCh chan struct{}) {
 	for _, try := range tryPrimes {
 		pass := true
 		var lastPrime int
-		for _, prime := range pg.List() {
+		for i := 0; i < pg.PrimesLen; i++ {
+			prime := pg.Primes[i]
 			if try%prime == 0 {
 				pass = false
 				break
