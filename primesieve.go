@@ -126,7 +126,9 @@ func (pgl *PrimeGroupList) Add(prime int) {
 func (pgl *PrimeGroupList) Generate() {
 	ch := make(chan struct{}, pgl.threads)
 	curGap := wheel2357()
-	pgl.Add(2)
+	// 2 is prime, but we won't generate factors of 2 so no need to add to pgl for comparison
+	pgl.outCh <- 2
+	// everything else gets added to pgl for comparison
 	pgl.Add(3)
 	pgl.Add(5)
 	pgl.Add(7)
@@ -135,7 +137,7 @@ func (pgl *PrimeGroupList) Generate() {
 	for true {
 		// generate potential primes
 		tryList := list.New()
-		max := pgl.End * 2
+		max := pgl.End * 3
 		for true {
 			gapVal := curGap.Value.(int)
 			gapTotal += gapVal
