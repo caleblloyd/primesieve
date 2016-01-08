@@ -30,7 +30,7 @@ func SegmentedSieve(rType int, rLimit int, rChan chan int) (int, []int) {
 	}
 
 	var count int
-	// anonymous fnction to handle different return types
+	// anonymous function to handle different return types
 	foundContinue := func(n int) bool {
 		count++
 		if rType == RTYPE_COUNT {
