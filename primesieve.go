@@ -11,9 +11,9 @@ const (
 	RTYPE_COUNT = iota
 	RTYPE_LIST_N
 	RTYPE_LIST_MAX
-	RTYPE_MAX     = iota
-	RTYPE_N       = iota
-	RTYPE_CHANNEL = iota
+	RTYPE_MAX
+	RTYPE_N
+	RTYPE_CHANNEL
 )
 
 /// Generate primes using the segmented sieve of Eratosthenes.
