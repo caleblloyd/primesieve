@@ -2,7 +2,7 @@
 
 A sieve of eratosthenes with wheel factorization optimization prime number generator, written in Go
 
-I've attempted some performance improvements by attempting to keep loops small enough to fit into the CPU Cache
+This is pure Go implementation of the algorithm outlined at http://primesieve.org/segmented_sieve.html
 
 Usage
 -----
@@ -15,23 +15,42 @@ Usage
 	)
 
 	func main(){
-		fmt.Println(primesieve.GenPrimes(10))
+		fmt.Println(primesieve.ListN(10))
 		// [2 3 5 7 11 13 17 19 23 29]
-		fmt.Println(primesieve.GenPrimesMax(19))
+
+		fmt.Println(primesieve.ListMax(19))
 		// [2 3 5 7 11 13 17 19]
-		fmt.Println(primesieve.NthPrime(10))
-		// 29
+
+		fmt.Println(primesieve.PrimeN(10))
+		// 19
+
+		fmt.Println(primesieve.PrimeMax(25))
+		// 23
+
+		fmt.Println(primesieve.Count(29))
+		// 10
+
+		c := make(chan int)
+		primesieve.Channel(c)
+		for i:=0; i<10; i++{
+			fmt.Printf("%d ", <-c)
+		}
+		fmt.Println()
+		// 2 3 5 7 11 13 17 19 23 29
 	}
 
 Performance
 -----------
 
-Performance is decent, but could definitely be better.  On a 2015 Macbook Pro Retina running Go 1.5, performance was:
+On a 2015 Macbook Pro Retina running Go 1.5, calling primesieve.Count(x):
 
-- 1,000 primes in ~1ms
-- 10,000 primes in ~20ms
-- 100,000 primes in ~200ms
-- 1,000,000 primes in ~2.7s
+| x      	| Prime Count 	|  Time 	|
+|--------	|-------------	|------:	|
+| 10^7   	| 664,579     	| 0.03s 	|
+| 10^8   	| 5,761,455   	| 0.3s  	|
+| 10^9   	| 50,847,534  	| 3.2s  	|
+| 2^31-1 	| 105,097,565 	| 7.3s  	|
+| 2^32   	| 203,280,221 	| 14.8s 	|
 
 
 Contributions
@@ -39,4 +58,6 @@ Contributions
 
 I welcome any performance improving Pull Requests or suggestions in the Issues section
 
-Originally inspired by https://github.com/rlmcpherson/primesieve, credit goes out to them for the wheel2357 factorization function also
+Originally inspired by https://github.com/rlmcpherson/primesieve, credit goes out to
+them for the wheel2357 factorization. Revised to use Segmented sieve of
+Eratosthenes algorithm outlined at http://primesieve.org/segmented_sieve.html

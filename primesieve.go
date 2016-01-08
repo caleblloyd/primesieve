@@ -1,227 +1,168 @@
 package primesieve
 
 import (
-	"container/list"
-	"container/ring"
-	"runtime"
+	"math"
 )
 
-const PRIME_GROUP_SIZE = 100000
-const TRY_PER_THREAD_SIZE = 100000
+/// Set your CPUs L1 data cache size (in bytes) here
+const SEGMENT_SIZE = 32768
 
-func wheel2357() *ring.Ring {
+const (
+	RTYPE_COUNT = iota
+	RTYPE_LIST_N
+	RTYPE_LIST_MAX
+	RTYPE_MAX     = iota
+	RTYPE_N       = iota
+	RTYPE_CHANNEL = iota
+)
+
+/// Generate primes using the segmented sieve of Eratosthenes.
+/// This algorithm uses O(n log log n) operations and O(sqrt(n)) space.
+func SegmentedSieve(rType int, rLimit int, rChan chan int) (int, []int) {
+	var rList []int
+	var rInt int
+
+	var limit int
+	if rType == RTYPE_LIST_N || rType == RTYPE_N || rType == RTYPE_CHANNEL {
+		limit = math.MaxInt32
+	} else {
+		limit = rLimit
+	}
+
+	var count int
+	// anonymous fnction to handle different return types
+	foundContinue := func(n int) bool {
+		count++
+		if rType == RTYPE_COUNT {
+			rInt = count
+		} else if rType == RTYPE_LIST_MAX || rType == RTYPE_LIST_N {
+			rList = append(rList, n)
+		} else if rType == RTYPE_N || rType == RTYPE_MAX {
+			rInt = n
+		} else if rType == RTYPE_CHANNEL {
+			rChan <- n
+		}
+		if (rType == RTYPE_LIST_N || rType == RTYPE_N) && count >= rLimit {
+			return false
+		}
+		return true
+	}
+
+	if limit < 2 || !foundContinue(2) {
+		return rInt, rList
+	}
+
+	sqrt := int(math.Sqrt(float64(limit)))
+	var sieve [SEGMENT_SIZE]bool
+
+	// generate small primes <= sqrt
+	var isComposite = make([]bool, sqrt+1)
+	for i := 2; i*i <= sqrt; i++ {
+		if !isComposite[i] {
+			for j := i * i; j <= sqrt; j += i {
+				isComposite[j] = true
+			}
+		}
+	}
+
+	s := 1
+	n := 3
 	var gaps2357 = []int{2, 4, 2, 4, 6, 2, 6, 4, 2, 4, 6, 6, 2, 6, 4, 2, 6, 4, 6, 8, 4, 2, 4, 2, 4, 8, 6, 4, 6, 2, 4, 6, 2, 6, 6, 4, 2, 4, 6, 2, 6, 4, 2, 4, 2, 10, 2, 10}
-	r := ring.New(len(gaps2357))
-	for _, i := range gaps2357 {
-		r.Value = i
-		r = r.Next()
-	}
-	return r
-}
+	var gapPos int
+	var primes, next []int
+	var stopIteration bool
+	gaps2357Len := len(gaps2357)
 
-type PrimeGroup struct {
-	Primes    []int
-	PrimesLen int
-	Capped    bool
-}
+	for low := 0; low <= limit; low += SEGMENT_SIZE {
 
-func NewPrimeGroup() *PrimeGroup {
-	return &PrimeGroup{
-		Primes: make([]int, PRIME_GROUP_SIZE),
-	}
-}
-
-func (pg *PrimeGroup) Add(prime int) bool {
-	if !pg.Capped {
-		pg.Primes[pg.PrimesLen] = prime
-		pg.PrimesLen++
-		if pg.PrimesLen >= PRIME_GROUP_SIZE {
-			pg.Capped = true
+		for i, _ := range sieve {
+			sieve[i] = true
 		}
-		return true
-	}
-	return false
-}
 
-func (pg *PrimeGroup) Compare(tg *TryGroup) {
-	tryLen := tg.TryLen
-	tg.Reset()
-	for t := 0; t < tryLen; t++ {
-		try := tg.Try[t]
-		pass := true
-		var lastPrime int
-		for i := 0; i < pg.PrimesLen; i++ {
-			prime := pg.Primes[i]
-			if try%prime == 0 {
-				pass = false
-				break
+		// current segment = interval [low, high]
+		high := low + SEGMENT_SIZE
+		if high > limit {
+			high = limit
+		}
+
+		// store small primes needed to cross off multiples
+		for ; s*s <= high; s++ {
+			if !isComposite[s] {
+				primes = append(primes, s)
+				next = append(next, s*s-low)
 			}
-			if lastPrime*prime > try {
-				break
+		}
+
+		// sieve the current segment
+		for i := 1; i < len(primes); i++ {
+			j := next[i]
+			for k := primes[i] * 2; j < SEGMENT_SIZE; j += k {
+				sieve[j] = false
 			}
-			lastPrime = prime
+			next[i] = j - SEGMENT_SIZE
 		}
-		if pass {
-			tg.Add(try)
-		}
-	}
-}
 
-type TryGroup struct {
-	Try    []int
-	TryLen int
-}
-
-func NewTryGroup() *TryGroup {
-	return &TryGroup{
-		Try: make([]int, TRY_PER_THREAD_SIZE),
-	}
-}
-
-func (tg *TryGroup) Add(try int) bool {
-	if tg.TryLen < TRY_PER_THREAD_SIZE {
-		tg.Try[tg.TryLen] = try
-		tg.TryLen++
-		return true
-	}
-	return false
-}
-
-func (tg *TryGroup) Reset() {
-	tg.TryLen = 0
-}
-
-type PrimeGroupList struct {
-	End         int
-	generate    int
-	outCh       chan int
-	primeGroups *list.List
-	threads     int
-}
-
-func NewPrimeGroupList(outCh chan int) *PrimeGroupList {
-	primeGroups := list.New()
-	primeGroups.PushBack(NewPrimeGroup())
-	threads := runtime.GOMAXPROCS(0)
-	return &PrimeGroupList{
-		outCh:       outCh,
-		primeGroups: primeGroups,
-		threads:     threads,
-	}
-}
-
-func (pgl *PrimeGroupList) Add(prime int) {
-	pg := pgl.primeGroups.Back().Value.(*PrimeGroup)
-	if !pg.Add(prime) {
-		pg := NewPrimeGroup()
-		pg.Add(prime)
-		pgl.primeGroups.PushBack(pg)
-	}
-	pgl.End = prime
-	pgl.outCh <- prime
-}
-
-func (pgl *PrimeGroupList) Generate() {
-	ch := make(chan struct{}, pgl.threads)
-	tg := make([]*TryGroup, pgl.threads)
-	for i := 0; i < pgl.threads; i++ {
-		tg[i] = NewTryGroup()
-	}
-	curGap := wheel2357()
-	// 2 is prime, but we won't generate factors of 2 so no need to add to pgl for comparison
-	pgl.outCh <- 2
-	// everything else gets added to pgl for comparison
-	pgl.Add(3)
-	pgl.Add(5)
-	pgl.Add(7)
-	pgl.Add(11)
-	gapTotal := 11
-	for true {
-		// generate potential primes
-		for i := 0; i < pgl.threads; i++ {
-			tg[i].Reset()
-		}
-		max := pgl.End * 3
-		tgi := 0
 		for true {
-			gapVal := curGap.Value.(int)
-			gapTotal += gapVal
-			if gapTotal > max {
-				gapTotal -= gapVal
+			if n > high {
 				break
 			}
-			if !tg[tgi].Add(gapTotal) {
-				tgi++
-				if tgi >= pgl.threads {
-					gapTotal -= gapVal
+			if sieve[n-low] {
+				// n is a prime
+				if !foundContinue(n) {
+					stopIteration = true
 					break
 				}
-				tg[tgi].Add(gapTotal)
 			}
-			curGap = curGap.Next()
-		}
-
-		f := func(ftg *TryGroup) {
-			for pg := pgl.primeGroups.Front(); pg != nil; pg = pg.Next() {
-				pg.Value.(*PrimeGroup).Compare(ftg)
-			}
-			ch <- struct{}{}
-		}
-
-		// compare
-		wait := 0
-		for i := 0; i < pgl.threads; i++ {
-			if tg[i].TryLen > 0 {
-				go f(tg[i])
-				wait++
-			}
-		}
-		for w := 0; w < wait; w++ {
-			<-ch
-		}
-		for i := 0; i < pgl.threads; i++ {
-			if tg[i].TryLen > 0 {
-				for ti := 0; ti < tg[i].TryLen; ti++ {
-					pgl.Add(tg[i].Try[ti])
+			// wheel factorization optimization
+			if n >= 11 {
+				n += gaps2357[gapPos]
+				gapPos++
+				if gapPos >= gaps2357Len {
+					gapPos = 0
 				}
+			} else if n == 3 {
+				n = 5
+			} else if n == 5 {
+				n = 7
+			} else {
+				n = 11
 			}
 		}
-	}
-}
-func GenPrimes(numPrimes int) []int {
-	ch := make(chan int, 16)
-	pgl := NewPrimeGroupList(ch)
-	primes := make([]int, numPrimes)
-	go pgl.Generate()
-	for i := 0; i < numPrimes; i++ {
-		prime := <-ch
-		primes[i] = prime
-	}
-	return primes
-}
 
-func GenPrimesMax(max int) []int {
-	ch := make(chan int, 16)
-	pgl := NewPrimeGroupList(ch)
-	var primes []int
-	go pgl.Generate()
-	for true {
-		prime := <-ch
-		if prime > max {
-			return primes
+		if stopIteration {
+			break
 		}
-		primes = append(primes, prime)
 	}
-	return primes
+
+	return rInt, rList
+
 }
 
-func NthPrime(n int) int {
-	ch := make(chan int, 16)
-	pgl := NewPrimeGroupList(ch)
-	go pgl.Generate()
-	var prime int
-	for ct := 0; ct < n; ct++ {
-		prime = <-ch
-	}
-	return prime
+func ListN(numPrimes int) []int {
+	_, l := SegmentedSieve(RTYPE_LIST_N, numPrimes, nil)
+	return l
+}
+
+func ListMax(max int) []int {
+	_, l := SegmentedSieve(RTYPE_LIST_MAX, max, nil)
+	return l
+}
+
+func Count(max int) int {
+	s, _ := SegmentedSieve(RTYPE_COUNT, max, nil)
+	return s
+}
+
+func PrimeN(n int) int {
+	s, _ := SegmentedSieve(RTYPE_N, n, nil)
+	return s
+}
+
+func PrimeMax(max int) int {
+	s, _ := SegmentedSieve(RTYPE_MAX, max, nil)
+	return s
+}
+
+func Channel(c chan int) {
+	go SegmentedSieve(RTYPE_CHANNEL, 0, c)
 }
