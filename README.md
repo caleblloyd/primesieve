@@ -22,7 +22,7 @@ Usage
 		// [2 3 5 7 11 13 17 19]
 
 		fmt.Println(primesieve.PrimeN(10))
-		// 19
+		// 29
 
 		fmt.Println(primesieve.PrimeMax(25))
 		// 23
