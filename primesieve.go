@@ -4,8 +4,11 @@ import (
 	"math"
 )
 
-/// Set your CPUs L1 data cache size (in bytes) here
+// Set your CPUs L1 data cache size (in bytes) here
 const SEGMENT_SIZE = 32768
+
+// wheel factorization optimization length
+const WHEEL_LEN = 48
 
 const (
 	RTYPE_COUNT = iota
@@ -16,8 +19,8 @@ const (
 	RTYPE_CHANNEL
 )
 
-/// Generate primes using the segmented sieve of Eratosthenes.
-/// This algorithm uses O(n log log n) operations and O(sqrt(n)) space.
+// Generate primes using the segmented sieve of Eratosthenes.
+// This algorithm uses O(n log log n) operations and O(sqrt(n)) space.
 func SegmentedSieve(rType int, rLimit int, rChan chan int) (int, []int) {
 	var rList []int
 	var rInt int
@@ -67,11 +70,10 @@ func SegmentedSieve(rType int, rLimit int, rChan chan int) (int, []int) {
 
 	s := 1
 	n := 3
-	var gaps2357 = []int{2, 4, 2, 4, 6, 2, 6, 4, 2, 4, 6, 6, 2, 6, 4, 2, 6, 4, 6, 8, 4, 2, 4, 2, 4, 8, 6, 4, 6, 2, 4, 6, 2, 6, 6, 4, 2, 4, 6, 2, 6, 4, 2, 4, 2, 10, 2, 10}
-	var gapPos int
+	var wheel2357 = []int{2, 4, 2, 4, 6, 2, 6, 4, 2, 4, 6, 6, 2, 6, 4, 2, 6, 4, 6, 8, 4, 2, 4, 2, 4, 8, 6, 4, 6, 2, 4, 6, 2, 6, 6, 4, 2, 4, 6, 2, 6, 4, 2, 4, 2, 10, 2, 10}
+	var wheelPos int
 	var primes, next []int
 	var stopIteration bool
-	gaps2357Len := len(gaps2357)
 
 	for low := 0; low <= limit; low += SEGMENT_SIZE {
 
@@ -115,10 +117,10 @@ func SegmentedSieve(rType int, rLimit int, rChan chan int) (int, []int) {
 			}
 			// wheel factorization optimization
 			if n >= 11 {
-				n += gaps2357[gapPos]
-				gapPos++
-				if gapPos >= gaps2357Len {
-					gapPos = 0
+				n += wheel2357[wheelPos]
+				wheelPos++
+				if wheelPos >= WHEEL_LEN {
+					wheelPos = 0
 				}
 			} else if n == 3 {
 				n = 5
